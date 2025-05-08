@@ -4,31 +4,27 @@ import { GraffitiRemote } from "@graffiti-garden/implementation-remote";
 import { GraffitiPlugin } from "@graffiti-garden/wrapper-vue";
 import { fileToGraffitiObject } from "@graffiti-garden/wrapper-files";
 
+// Reusable ListSection component for displaying lists
 const ListSection = {
   props: {
     title: String,
-    items: Array,
-    showRemove:{ type: Boolean, default: false }
+    items: { type: Array, default: () => [] },
+    showRemove: { type: Boolean, default: false }
   },
-  emits: ["select","remove"],
+  emits: ["select", "remove"],
   template: `
     <div class="list-section">
       <h2>{{ title }}</h2>
       <ul>
         <li v-for="item in items" :key="item.id">
-          <img
-            class="list-avatar"
-            :src="item.iconUrl || 'images/profile.png'"
-            alt=""
-          />
-          <span class="list-label" @click="$emit('select', item)">
-            {{ item.name }}
-          </span>
+          <img class="list-avatar" :src="item.iconUrl || 'images/profile.png'" alt="" />
+          <span class="list-label" @click="$emit('select', item)">{{ item.name }}</span>
           <button
             v-if="showRemove"
             class="btn-remove"
-            @click="$emit('remove', item.id)"
-          >Remove</button>
+            @click="$emit('remove', item.id)">
+            Remove
+          </button>
         </li>
       </ul>
     </div>
@@ -36,65 +32,58 @@ const ListSection = {
 };
 
 createApp({
-  components: {
-    ListSection
-  },
-  
+  components: { ListSection },
+
   data() {
     return {
       session: null,
-
-      // MESSAGES
       currentTab: "messages",
-      users: [ ],
+      friendTab: "list",
+      friendOptions: [
+        { key: "list",     label: "Friends List",     icon: "images/friendslist.png" },
+        { key: "add",      label: "Add Friends",      icon: "images/addfriends.png" },
+        { key: "requests", label: "Friend Requests", icon: "images/friendrequests.png" }
+      ],
+      users: [],
+      publicProfiles: [],
+      friendObjects: [],
       selectedUser: null,
       selectedChannel: null,
       myMessage: "",
       editingMessage: false,
       editingObject: null,
-      messageSchema: {
-        properties: {
-          value: {
-            required: ["content","published"],
-            properties: {
-              content:   { type: "string" },
-              published: { type: "number" }
-            }
-          }
-        }
-      },
 
-      // FRIENDS
-      friendOptions: [
-        { key: "list",     label: "Friends List",    icon: "images/friendslist.png"    },
-        { key: "requests", label: "Friend Requests", icon: "images/friendrequests.png" }
-      ],
-      friendTab: "list",
-      friendActor: "",
-      friendSchema: {
-        properties: {
-          value: {
-            required: ["activity","target"],
-            properties: {
-              activity: { const: "friend" },
-              target:   { type: "string" }
-            }
-          }
-        }
-      },
-      friendObjects: [],
-
-      // PROFILE
+      // Profile state
+      profileObject: null,
       profileName: "",
       profilePronouns: "",
       profileBio: "",
       profilePicFile: null,
       profilePicPreview: "",
       profilePicUrl: "",
+      saved: false,
+
+      // Schemas
+      messageSchema: {
+        properties: {
+          value: {
+            required: ["content", "published"],
+            properties: { content: { type: "string" }, published: { type: "number" } }
+          }
+        }
+      },
+      friendSchema: {
+        properties: {
+          value: {
+            required: ["activity", "target"],
+            properties: { activity: { const: "friend" }, target: { type: "string" } }
+          }
+        }
+      },
       profileSchema: {
         properties: {
           value: {
-            required: ["describes","published"],
+            required: ["describes", "published"],
             properties: {
               describes: { type: "string" },
               name:      { type: "string" },
@@ -109,84 +98,197 @@ createApp({
     };
   },
 
-  async mounted() {
-    const s = await this.$graffiti.login();   
-    this.session = s;
-    
-    //debug
-    if (!s || !s.actor) {
-      console.warn("Login failed or returned invalid session");
-      return;
-    }
+  computed: {
+    // Users you are mutually friends with
+    acceptedFriends() {
+      const mine = [], theirs = [];
+      this.friendObjects.forEach(f => {
+        if (!f?.value) return;
+        const v = f.value;
+        if (f.actor === this.session.actor && typeof v.target === 'string') mine.push(v.target);
+        if (v.target === this.session.actor && typeof f.actor === 'string') theirs.push(f.actor);
+      });
+      return mine
+        .filter(id => theirs.includes(id))
+        .map(id => ({ id, name: id, iconUrl: null }));
+    },
 
-    const allProfiles = [];
-    for await (const o of this.$graffiti.discover({
-      channels: [s.actor],
-      schema: this.profileSchema
-    })) {
-      allProfiles.push(o);
-    }
-    if (allProfiles.length) {
-      const latest = allProfiles.sort((a,b)=>b.value.published - a.value.published)[0].value;
-      this.profileName     = latest.name;
-      this.profilePronouns = latest.pronouns;
-      this.profileBio      = latest.bio;
-      this.profilePicUrl   = latest.icon || "";
-      this.profilePicPreview = this.profilePicUrl;
-    }
+    // Incoming friend requests
+    friendRequests() {
+      const mine = [], theirs = [];
+      this.friendObjects.forEach(f => {
+        if (!f?.value) return;
+        const v = f.value;
+        if (f.actor === this.session.actor && typeof v.target === 'string') mine.push(v.target);
+        if (v.target === this.session.actor && typeof f.actor === 'string') theirs.push(f.actor);
+      });
+      return theirs
+        .filter(id => !mine.includes(id))
+        .map(id => ({ id, name: id, iconUrl: null }));
+    },
 
-    const fobs = [];
-    for await (const o of this.$graffiti.discover({
-      channels: [s.actor],
-      schema: this.friendSchema
-    })) {
-      fobs.push(o);
+    // Sent friend requests
+    sentRequests() {
+      const mine = [], theirs = [];
+      this.friendObjects.forEach(f => {
+        if (!f?.value) return;
+        const v = f.value;
+        if (f.actor === this.session.actor && typeof v.target === 'string') mine.push(v.target);
+        if (v.target === this.session.actor && typeof f.actor === 'string') theirs.push(f.actor);
+      });
+      return mine
+        .filter(id => !theirs.includes(id))
+        .map(id => ({ id, name: id, iconUrl: null }));
+    },
+
+    // Discover users not yet in any friend state
+    discoverUsers() {
+      const me = this.session?.actor;
+      return this.publicProfiles.filter(p => (
+        p.id !== me &&
+        !this.acceptedFriends.some(f => f.id === p.id) &&
+        !this.friendRequests.some(f => f.id === p.id) &&
+        !this.sentRequests.some(f => f.id === p.id)
+      ));
     }
-    this.friendObjects = fobs;
   },
 
-  computed: {
-    acceptedFriends() {
-      if (!this.session) return [];
-      
-      const mine = new Set(this.friendObjects.filter(f => f.actor === this.session.actor).map(f => f.value.target));
-      const theirs = new Set(this.friendObjects.filter(f => f.value.target === this.session.actor).map(f => f.actor));
-      
-      return [...mine].filter(x => theirs.has(x)).map(id => ({
-        id: id,
-        name: id,
-        iconUrl: null
-      }));
+  watch: {
+    // On login or session change
+    "$graffitiSession.value": {
+      immediate: true,
+      async handler(session) {
+        if (!session?.actor) {
+          this.session = null;
+          return;
+        }
+        this.session = session;
+
+        // Clear profile form
+        this.profileObject = null;
+        this.profileName = this.profilePronouns = this.profileBio = "";
+        this.profilePicUrl = this.profilePicPreview = "";
+        this.profilePicFile = null;
+
+        // Load existing profile
+        const profiles = [];
+        for await (const obj of this.$graffiti.discover(["designftw-2025-studio2", session.actor], this.profileSchema)) {
+          if (obj?.value?.describes === session.actor) profiles.push(obj);
+        }
+        if (profiles.length) {
+          profiles.sort((a, b) => b.value.published - a.value.published);
+          const latest = profiles[0];
+          this.profileObject     = latest;
+          this.profileName       = latest.value.name     || "";
+          this.profilePronouns   = latest.value.pronouns || "";
+          this.profileBio        = latest.value.bio      || "";
+          this.profilePicUrl     = latest.value.icon     || "";
+          this.profilePicPreview = this.profilePicUrl;
+        }
+
+        // Refresh data
+        await this.refreshFriends();
+        await this.refreshPublicProfiles();
+
+        // Show only friends in chat user list
+        this.users = this.acceptedFriends.map(f => ({
+          id:      f.id,
+          name:    f.name,
+          iconUrl: f.iconUrl
+        }));
+      }
     },
-    
-    friendRequests() {
-      if (!this.session) return [];
-      
-      const mine = new Set(this.friendObjects.filter(f => f.actor === this.session.actor).map(f => f.value.target));
-      const theirs = new Set(this.friendObjects.filter(f => f.value.target === this.session.actor).map(f => f.actor));
-      
-      return [...theirs].filter(x => !mine.has(x)).map(id => ({
-        id: id,
-        name: id,
-        iconUrl: null
-      }));
+
+    // When switching tabs
+    currentTab(newTab) {
+      if (newTab === 'settings') {
+        const v = this.profileObject?.value;
+        this.profileName       = v?.name     || "";
+        this.profilePronouns   = v?.pronouns || "";
+        this.profileBio        = v?.bio      || "";
+        this.profilePicUrl     = v?.icon     || "";
+        this.profilePicPreview = this.profilePicUrl;
+        this.profilePicFile    = null;
+      }
     },
-    
-    sentRequests() {
-      if (!this.session) return [];
-      
-      const mine = new Set(this.friendObjects.filter(f => f.actor === this.session.actor).map(f => f.value.target));
-      const theirs = new Set(this.friendObjects.filter(f => f.value.target === this.session.actor).map(f => f.actor));
-      
-      return [...mine].filter(x => !theirs.has(x)).map(id => ({
-        id: id,
-        name: id,
-        iconUrl: null
-      }));
+
+    // Keep chat user list in sync
+    acceptedFriends(friends) {
+      this.users = friends.map(f => ({ id: f.id, name: f.name, iconUrl: f.iconUrl }));
     }
   },
 
   methods: {
+    // Fetch all friend objects
+    async refreshFriends() {
+      const arr = [];
+      for await (const obj of this.$graffiti.discover([this.session.actor], this.friendSchema)) {
+        if (obj?.value?.target) arr.push(obj);
+      }
+      this.friendObjects = arr;
+    },
+
+    // Fetch all public profiles
+    async refreshPublicProfiles() {
+      const all = [];
+      for await (const obj of this.$graffiti.discover(["designftw-2025-studio2"], this.profileSchema)) {
+        if (obj?.value?.describes) all.push(obj);
+      }
+      const latestMap = {};
+      all.forEach(o => {
+        const v = o.value;
+        const who = v.describes;
+        if (!latestMap[who] || v.published > latestMap[who].value.published) {
+          latestMap[who] = o;
+        }
+      });
+      this.publicProfiles = Object.values(latestMap).map(o => ({
+        id:      o.value.describes,
+        name:    o.value.name     || o.value.describes,
+        iconUrl: o.value.icon     || null
+      }));
+    },
+
+    // Send a friend request
+    async addFriend(targetId) {
+      if (!targetId) return;
+      await this.$graffiti.put(
+        { value: { activity: "friend", target: targetId }, channels: [this.session.actor, targetId] },
+        this.session
+      );
+      await this.refreshFriends();
+    },
+
+    // Internal delete helper
+    async _deleteSingle({ actor, target }) {
+      for (const f of this.friendObjects) {
+        if (f.actor === actor && f.value.target === target) {
+          await this.$graffiti.delete(f, this.session);
+          break;
+        }
+      }
+    },
+
+    // Remove mutual friendship
+    async removeFriend(id) {
+      await this._deleteSingle({ actor: this.session.actor, target: id });
+      await this._deleteSingle({ actor: id, target: this.session.actor });
+      await this.refreshFriends();
+    },
+
+    // Decline incoming request
+    async declineRequest(id) {
+      await this._deleteSingle({ actor: id, target: this.session.actor });
+      await this.refreshFriends();
+    },
+
+    // Cancel sent request
+    async cancelRequest(id) {
+      await this._deleteSingle({ actor: this.session.actor, target: id });
+      await this.refreshFriends();
+    },
+
+    // Select a user to chat
     selectUser(user) {
       this.selectedUser = user;
       this.selectedChannel = [this.session.actor, user.id].sort().join("--");
@@ -194,170 +296,106 @@ createApp({
       this.editingObject = null;
       this.myMessage = "";
     },
-    
+
+    // Send a chat message
     async sendMessage() {
-      if (!this.myMessage.trim()) return;
+      if (!this.myMessage.trim() || !this.selectedChannel) return;
       await this.$graffiti.put(
-        { value:{content:this.myMessage,published:Date.now()}, channels:[this.selectedChannel] },
+        { value: { content: this.myMessage.trim(), published: Date.now() }, channels: [this.selectedChannel] },
         this.session
       );
       this.myMessage = "";
     },
 
-    // FRIENDS
-    async addFriend(target) {
-      if (!this.session) {
-        console.error("Cannot add friend: No active session");
-        alert("Issues with add; not correctly implemented yet");
-        return;
-      }
-    
-      let targetId = target;
-      
-      if (typeof target === 'object' && target !== null) {
-        targetId = target.id;
-      }
-      
-      if (!targetId) return;
-      
-      try {
-        await this.$graffiti.put(
-          { 
-            value: {
-              activity: "friend",
-              target: targetId
-            }, 
-            channels: [this.session.actor, targetId] 
-          },
-          this.session
-        );
-        
-        await this.mounted();
-      } catch (error) {
-        console.error("Error adding friend:", error);
-        alert("Failed to add friend. Please try again.");
-      }
-    },
-    
-    async removeFriend(id) { 
-      await this._deletePair(id); 
-      await this.mounted(); 
-    },
-    
-    async declineRequest(id) { 
-      await this._deleteSingle({ actor:id, target:this.session.actor }); 
-      await this.mounted(); 
-    },
-    
-    async cancelRequest(id) { 
-      await this._deleteSingle({ actor:this.session.actor, target:id }); 
-      await this.mounted(); 
-    },
-
-    async _deleteSingle(criteria) {
-      const o = this.friendObjects.find(f=>f.actor===criteria.actor && f.value.target===criteria.target);
-      if (o) await this.$graffiti.delete(o, this.session);
-    },
-    
-    async _deletePair(id) {
-      await this._deleteSingle({ actor:this.session.actor, target:id });
-      await this._deleteSingle({ actor:id, target:this.session.actor });
-    },
-
-    // PROFILE
-    onProfilePicChange(e) {
-      const file = e.target.files[0];
-      if (!file) return;
-      this.profilePicFile    = file;
-      this.profilePicPreview = URL.createObjectURL(file);
-    },
-    
-    removeProfilePic() {
-      this.profilePicFile    = null;
-      this.profilePicUrl     = "";
-      this.profilePicPreview = "";
-    },
-    
-    async saveProfile() {
-      if (this.profilePicFile) {
-        const obj = await fileToGraffitiObject(this.profilePicFile);
-        const { url } = await this.$graffiti.put(obj, this.session);
-        this.profilePicUrl    = url;
-        this.profilePicFile   = null;
-      }
-      await this.$graffiti.put(
-        {
-          value:{
-            describes: this.session.actor,
-            name:      this.profileName,
-            pronouns:  this.profilePronouns,
-            bio:       this.profileBio,
-            icon:      this.profilePicUrl,
-            published: Date.now()
-          },
-          channels: [ this.session.actor ]
-        },
-        this.session
-      );
-      alert("Profile saved!");
-    },
-
-    logout() {
-      if (this.session) {
-        this.$graffiti.logout(this.session);
-        this.session = null;
-        window.location.reload();
-      } else {
-        console.warn("No active session to logout");
-        window.location.reload();
-      }
-    },
-
+    // Start editing a message
     startEdit(msg) {
       this.editingMessage = true;
       this.editingObject = msg;
       this.myMessage = msg.value.content;
       this.$nextTick(() => this.$refs.messageInput.focus());
     },
-    
+
+    // Cancel edit
     cancelEdit() {
       this.editingMessage = false;
       this.editingObject = null;
       this.myMessage = "";
     },
-    
+
+    // Update an edited message
     async updateMessage() {
-      if (!this.myMessage.trim() || !this.editingObject) return;
-      const updatedObject = {
+      if (!this.editingObject || !this.myMessage.trim()) return;
+      const updated = {
         ...this.editingObject,
-        value: {
-          ...this.editingObject.value,
-          content: this.myMessage.trim(),
-          edited: true,
-          editedAt: Date.now()
-        }
+        value: { ...this.editingObject.value, content: this.myMessage.trim(), edited: true, editedAt: Date.now() }
       };
-      
-      await this.$graffiti.put(updatedObject, this.session);
-      
-      this.editingMessage = false;
-      this.editingObject = null;
-      this.myMessage = "";
+      await this.$graffiti.put(updated, this.session);
+      this.cancelEdit();
     },
-    
+
+    // Delete a message
     async deleteMessage(msg) {
       if (confirm("Are you sure you want to delete this message?")) {
         await this.$graffiti.delete(msg, this.session);
-        
-        if (this.editingObject && this.editingObject.url === msg.url) {
-          this.cancelEdit();
-        }
+        if (this.editingObject?.url === msg.url) this.cancelEdit();
       }
+    },
+
+    // Handle profile picture selection
+    onProfilePicChange(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      this.profilePicFile = file;
+      this.profilePicPreview = URL.createObjectURL(file);
+    },
+
+    // Remove current picture
+    removeProfilePic() {
+      this.profilePicFile = null;
+      this.profilePicUrl = "";
+      this.profilePicPreview = "";
+    },
+
+    // Save or update profile
+    async saveProfile() {
+      // Upload new pic if chosen
+      if (this.profilePicFile) {
+        const obj = await fileToGraffitiObject(this.profilePicFile);
+        const { url } = await this.$graffiti.put(obj, this.session);
+        this.profilePicUrl = url;
+        this.profilePicFile = null;
+      }
+
+      // Build profile object
+      const payload = {
+        ...(this.profileObject || {}),
+        value: {
+          generator: "https://jackyc-11.github.io/tether/",
+          describes: this.session.actor,
+          name:      this.profileName,
+          pronouns:  this.profilePronouns,
+          bio:       this.profileBio,
+          icon:      this.profilePicUrl,
+          published: Date.now()
+        },
+        channels: ["designftw-2025-studio2"]
+      };
+
+      // Put and store URL if new
+      const res = await this.$graffiti.put(payload, this.session);
+      if (!this.profileObject && res.url) {
+        this.profileObject = { ...payload, url: res.url };
+      }
+
+      this.saved = true;
+      setTimeout(() => {
+        this.saved = false;
+      }, 2000);
     }
   }
 })
 .use(GraffitiPlugin, {
-  graffiti: new GraffitiLocal(),
-  // graffiti: new GraffitiRemote(),
+  // graffiti: new GraffitiLocal(),
+  graffiti: new GraffitiRemote(),
 })
 .mount("#app");

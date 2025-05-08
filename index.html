@@ -18,145 +18,161 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <div id="app" class="app-container">
+    <div id="app">
 
-      <!-- NAV -->
-      <section class="nav-panel">
-        <div class="nav-item" :class="{ active: currentTab==='messages' }" @click="currentTab='messages'">
-          <img src="images/dark-msg-section.png" alt="Messages" />
-        </div>
-        <div class="nav-item" :class="{ active: currentTab==='friends' }" @click="currentTab='friends'">
-          <img src="images/dark-friend-section.png" alt="Friends" />
-        </div>
-        <div class="nav-item" :class="{ active: currentTab==='settings' }" @click="currentTab='settings'">
-          <img src="images/dark-setting-section.png" alt="Settings" />
-        </div>
-      </section>
+      <div v-if="!$graffitiSession.value" class="login-screen">
+        <!-- add tether title and logo, make screen look nicer -->
+        <button class="btn-login" @click="$graffiti.login()">Log In</button>
+      </div>
 
-      <!-- MESSAGES TAB -->
-      <section v-if="currentTab==='messages'" class="panel user-list">
-        <list-section 
-          title="Users"
-          :items="users"
-          :show-remove="false"
-          @select="selectUser"
-        />
-      </section>
-      <section v-if="currentTab==='messages'" class="panel chat-window">
-        <template v-if="selectedChannel">
-          <section class="messages">
-            <graffiti-discover
-              v-slot="{ objects: msgs = [], isInitialPolling }"
-              :channels="[selectedChannel]"
-              :schema="messageSchema"
-            >
-              <div v-if="isInitialPolling" class="loading">Loading…</div>
-              <div
-                v-for="m in msgs.sort((a,b)=>a.value.published - b.value.published)"
-                :key="m.url"
-                class="message"
-                :class="{ mine: m.actor === session?.actor, editing: editingObject?.url === m.url }"
-              >
-                <div class="message-content">
-                  <strong>{{ m.actor === session?.actor ? 'You' : m.actor }}</strong>
-                  {{ m.value.content }}
-                </div>
-                <div class="msg-controls" v-if="m.actor === session?.actor">
-                  <button @click="startEdit(m)" class="edit-btn">Edit</button>
-                  <button @click="deleteMessage(m)" class="delete-btn">Delete</button>
-                </div>
-              </div>
-            </graffiti-discover>
-          </section>
-          <form class="composer" @submit.prevent="editingMessage ? updateMessage() : sendMessage()">
-            <input v-model="myMessage" placeholder="Type a message…" ref="messageInput" required />
-            <button type="submit">{{ editingMessage ? 'Update' : 'Send' }}</button>
-            <button v-if="editingMessage" type="button" @click="cancelEdit" class="cancel-btn">Cancel</button>
-          </form>
-        </template>
-        <template v-else>
-          <div class="no-chat">Select a user to chat.</div>
-        </template>
-      </section>
-
-      <!-- FRIENDS TAB -->
-      <section v-if="currentTab==='friends'" class="panel user-list">
-        <h2>Friends</h2>
-        <ul class="friend-nav">
-          <li v-for="opt in friendOptions" :key="opt.key"
-              :class="{ selected: friendTab===opt.key }"
-              @click="friendTab=opt.key">
-            <img class="friend-nav-icon" :src="opt.icon" />
-            {{ opt.label }}
-          </li>
-        </ul>
-      </section>
-      <section v-if="currentTab==='friends'" class="panel chat-window friends-panel">
-        <template v-if="friendTab==='list'">
-          <div class="add-friend-section">
-            <form @submit.prevent="addFriend(friendActor)" class="friend-form">
-              <input v-model="friendActor" placeholder="User ID…" required>
-              <button type="submit">Add</button>
-            </form>
+      <div v-else class="app-container">
+        <!-- NAV -->
+        <section class="nav-panel">
+          <div class="nav-item" :class="{ active: currentTab==='messages' }" @click="currentTab='messages'">
+            <img src="images/dark-msg-section.png" alt="Messages" />
           </div>
-          <list-section 
-            title="Your Friends"
-            :items="acceptedFriends"
-            :show-remove="true"
-            @select="selectUser"
-            @remove="removeFriend"
-          />
-        </template>
+          <div class="nav-item" :class="{ active: currentTab==='friends' }" @click="currentTab='friends'">
+            <img src="images/dark-friend-section.png" alt="Friends" />
+          </div>
+          <div class="nav-item" :class="{ active: currentTab==='settings' }" @click="currentTab='settings'">
+            <img src="images/dark-setting-section.png" alt="Settings" />
+          </div>
+        </section>
 
-        <template v-else>
+        <!-- MESSAGES TAB -->
+        <section v-if="currentTab==='messages'" class="panel user-list">
           <list-section 
-            title="Incoming Requests"
-            :items="friendRequests"
+            title="Users"
+            :items="users"
             :show-remove="false"
-            @select="addFriend"
+            @select="selectUser"
           />
-          
-          <list-section 
-            title="Sent Requests"
-            :items="sentRequests"
-            :show-remove="true"
-            @remove="cancelRequest"
-          />
-        </template>
+        </section>
+        <section v-if="currentTab==='messages'" class="panel chat-window">
+          <template v-if="selectedChannel">
+            <section class="messages">
+              <graffiti-discover autopoll
+                v-slot="{ objects: msgs = [], isInitialPolling }"
+                :channels="[selectedChannel]"
+                :schema="messageSchema"
+              >
+                <div v-if="isInitialPolling" class="loading">Loading…</div>
+                <div
+                  v-for="m in (Array.isArray(objects) ? objects : []).sort((a,b)=>a.value.published - b.value.published)"
+                  :key="m.url"
+                  class="message"
+                  :class="{ mine: m.actor === session?.actor, editing: editingObject?.url === m.url }"
+                >
+                  <div class="message-content">
+                    <strong>{{ m.actor === session?.actor ? 'You' : m.actor }}</strong>
+                    {{ m.value.content }}
+                  </div>
+                  <div class="msg-controls" v-if="m.actor === session?.actor">
+                    <button @click="startEdit(m)" class="edit-btn">Edit</button>
+                    <button @click="deleteMessage(m)" class="delete-btn">Delete</button>
+                  </div>
+                </div>
+              </graffiti-discover>
+            </section>
+            <form class="composer" @submit.prevent="editingMessage ? updateMessage() : sendMessage()">
+              <input v-model="myMessage" placeholder="Type a message…" ref="messageInput" required />
+              <button type="submit">{{ editingMessage ? 'Update' : 'Send' }}</button>
+              <button v-if="editingMessage" type="button" @click="cancelEdit" class="cancel-btn">Cancel</button>
+            </form>
+          </template>
+          <template v-else>
+            <div class="no-chat">Select a user to chat.</div>
+          </template>
+        </section>
 
-      </section>
+        <!-- FRIENDS TAB -->
+        <section v-if="currentTab==='friends'" class="panel user-list">
+          <h2>Friends</h2>
+          <ul class="friend-nav">
+            <li v-for="opt in friendOptions" :key="opt.key"
+                :class="{ selected: friendTab===opt.key }"
+                @click="friendTab=opt.key">
+              <img class="friend-nav-icon" :src="opt.icon" />
+              {{ opt.label }}
+            </li>
+          </ul>
+        </section>
+        <section v-if="currentTab==='friends'" class="panel chat-window friends-panel">
+          <template v-if="friendTab==='list'">
+            <list-section 
+              title="Your Friends"
+              :items="acceptedFriends"
+              :show-remove="true"
+              @select="selectUser"
+              @remove="removeFriend"
+            />
+          </template>
 
-      <!-- SETTINGS / PROFILE TAB -->
-      <section v-if="currentTab==='settings'" class="panel chat-window settings-panel">
-        <h2>Profile</h2>
-        <form class="profile-form" @submit.prevent="saveProfile">
-          <label>
-            Picture
-            <input type="file" accept="image/*" @change="onProfilePicChange" />
-          </label>
-          <div v-if="profilePicPreview" class="profile-preview">
-            <img :src="profilePicPreview" alt="Preview" />
-            <button type="button" class="btn-remove-pic" @click="removeProfilePic()">
-              Remove
+          <template v-else-if="friendTab==='add'">
+            <div class="add-friend-list">
+              <h2>Add Friends</h2>
+              <ul class="user-list">
+                <li v-for="user in discoverUsers" :key="user.id">
+                  <img class="list-avatar" :src="user.iconUrl || 'images/profile.png'" alt="" />
+                  <span class="list-label">{{ user.name }}</span>
+                  <button @click="addFriend(user.id)">Add</button>
+                </li>
+              </ul>
+              <div v-if="discoverUsers.length === 0">No users to add.</div>
+            </div>
+          </template>
+
+          <template v-else-if="friendTab==='requests'">
+            <list-section 
+              title="Incoming Requests"
+              :items="friendRequests"
+              :show-remove="false"
+              @select="addFriend"
+            />
+            
+            <list-section 
+              title="Sent Requests"
+              :items="sentRequests"
+              :show-remove="true"
+              @remove="cancelRequest"
+            />
+          </template>
+
+        </section>
+
+        <!-- SETTINGS / PROFILE TAB -->
+        <section v-if="currentTab==='settings'" class="panel chat-window settings-panel">
+          <h2>{{ profileObject?.value?.name || session.actor }}'s Profile</h2>
+          <form class="profile-form" @submit.prevent="saveProfile">
+            <label>
+              Picture
+              <input type="file" accept="image/*" @change="onProfilePicChange" />
+            </label>
+            <div v-if="profilePicPreview" class="profile-preview">
+              <img :src="profilePicPreview" alt="Preview" />
+              <button type="button" class="btn-remove-pic" @click="removeProfilePic()">
+                Remove
+              </button>
+            </div>
+            <label>
+              Name
+              <input v-model="profileName" placeholder="Name" />
+            </label>
+            <label>
+              Pronouns
+              <input v-model="profilePronouns" placeholder="Pronouns" />
+            </label>
+            <label>
+              Bio
+              <textarea v-model="profileBio" placeholder="Short bio…"></textarea>
+            </label>
+            <button type="submit" :class="{ 'saved-btn': saved }">
+              {{ saved ? 'Saved!' : 'Save Profile' }}
             </button>
-          </div>
-          <label>
-            Name
-            <input v-model="profileName" placeholder="Name" required />
-          </label>
-          <label>
-            Pronouns
-            <input v-model="profilePronouns" placeholder="Pronouns" />
-          </label>
-          <label>
-            Bio
-            <textarea v-model="profileBio" placeholder="Short bio…"></textarea>
-          </label>
-          <button type="submit">Save Profile</button>
-        </form>
-        <button class="logout-btn" @click="logout">Log Out</button>
-      </section>
-
+          </form>
+          <button v-if="$graffitiSession.value" class="logout-btn" @click=$graffiti.logout($graffitiSession.value)>Log Out</button>
+        </section>
+      </div>
     </div>
 
     <script src="index.js" type="module"></script>

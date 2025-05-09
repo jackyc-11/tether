@@ -3,6 +3,8 @@ import { GraffitiLocal } from "@graffiti-garden/implementation-local";
 import { GraffitiRemote } from "@graffiti-garden/implementation-remote";
 import { GraffitiPlugin } from "@graffiti-garden/wrapper-vue";
 import { fileToGraffitiObject } from "@graffiti-garden/wrapper-files";
+import { GraffitiGet } from "@graffiti-garden/wrapper-vue";
+import { graffitiObjectToFile } from "@graffiti-garden/wrapper-files";
 
 // Reusable ListSection component for displaying lists
 const ListSection = {
@@ -16,15 +18,36 @@ const ListSection = {
     <div class="list-section">
       <h2>{{ title }}</h2>
       <ul>
-        <li v-for="item in items" :key="item.id">
-          <img class="list-avatar" :src="item.iconUrl || 'images/profile.png'" alt="" />
-          <span class="list-label" @click="$emit('select', item)">{{ item.name }}</span>
+        <li v-for="user in items" :key="user.id" class="user-item">
+          <graffiti-get
+            v-if="user.iconUrl"
+            :url="user.iconUrl"
+            v-slot="{ object }"
+          >
+            <graffiti-object-to-file
+              :object="object"
+              v-slot="{ fileDataUrl }"
+            >
+              <img class="list-avatar" :src="fileDataUrl" alt="icon" />
+            </graffiti-object-to-file>
+          </graffiti-get>
+
+          <!-- fallback if there was no iconUrl or the above fails -->
+          <img
+            v-else
+            class="list-avatar"
+            src="./images/profile.png"
+            alt="img"
+          />
+
+          <span class="list-label" @click="$emit('select', user)">
+            {{ user.name }}
+          </span>
           <button
             v-if="showRemove"
             class="btn-remove"
-            @click="$emit('remove', item.id)">
-            Remove
-          </button>
+            @click="$emit('remove', user.id)"
+          >Remove</button>
         </li>
       </ul>
     </div>
@@ -32,7 +55,7 @@ const ListSection = {
 };
 
 createApp({
-  components: { ListSection },
+  components: { ListSection, GraffitiGet, graffitiObjectToFile },
 
   data() {
     return {
@@ -52,6 +75,10 @@ createApp({
       myMessage: "",
       editingMessage: false,
       editingObject: null,
+      searchTerm: "",
+
+      selectedFeature: null,
+      myEmoji: "",
 
       // Profile state
       profileObject: null,
@@ -101,12 +128,14 @@ createApp({
   computed: {
     // Users you are mutually friends with
     acceptedFriends() {
+      const me = this.session?.actor;
+      if (!me) return [];
       const mine = [], theirs = [];
       this.friendObjects.forEach(f => {
         if (!f?.value) return;
         const v = f.value;
-        if (f.actor === this.session.actor && typeof v.target === 'string') mine.push(v.target);
-        if (v.target === this.session.actor && typeof f.actor === 'string') theirs.push(f.actor);
+        if (f.actor === me && typeof v.target === "string") mine.push(v.target);
+        if (v.target === me && typeof f.actor === "string") theirs.push(f.actor);
       });
       return mine
         .filter(id => theirs.includes(id))
@@ -144,13 +173,28 @@ createApp({
     // Discover users not yet in any friend state
     discoverUsers() {
       const me = this.session?.actor;
-      return this.publicProfiles.filter(p => (
+      const list = this.publicProfiles.filter(p => (
         p.id !== me &&
         !this.acceptedFriends.some(f => f.id === p.id) &&
         !this.friendRequests.some(f => f.id === p.id) &&
         !this.sentRequests.some(f => f.id === p.id)
       ));
-    }
+      return list;
+    },
+
+    outgoingRequests() {
+      return this.friendObjects
+        .filter(f => f.actor === this.session.actor)
+        .map(f => f.value.target);
+    },
+    
+    filteredUsers() {
+      const me = this.session.actor;
+      const term = this.searchTerm.toLowerCase().trim();
+      return this.publicProfiles.filter(p => p.id !== me)
+        .filter(p => !this.acceptedFriends.some(f => f.id === p.id))
+        .filter(p => !term || p.name.toLowerCase().includes(term));
+    },
   },
 
   watch: {
@@ -222,8 +266,8 @@ createApp({
     // Fetch all friend objects
     async refreshFriends() {
       const arr = [];
-      for await (const obj of this.$graffiti.discover([this.session.actor], this.friendSchema)) {
-        if (obj?.value?.target) arr.push(obj);
+      for await (const entry of this.$graffiti.discover([this.session.actor], this.friendSchema)) {
+        if (entry.object?.value?.target) arr.push(entry.object);
       }
       this.friendObjects = arr;
     },
@@ -231,15 +275,15 @@ createApp({
     // Fetch all public profiles
     async refreshPublicProfiles() {
       const all = [];
-      for await (const obj of this.$graffiti.discover(["designftw-2025-studio2"], this.profileSchema)) {
-        if (obj?.value?.describes) all.push(obj);
+      for await (const entry of this.$graffiti.discover(["designftw-2025-studio2"], this.profileSchema)) {
+        const obj = entry.object;
+        if (obj.value?.describes) all.push(obj);
       }
       const latestMap = {};
       all.forEach(o => {
-        const v = o.value;
-        const who = v.describes;
-        if (!latestMap[who] || v.published > latestMap[who].value.published) {
-          latestMap[who] = o;
+        const { describes, published } = o.value;
+        if (!latestMap[describes] || published > latestMap[describes].value.published) {
+          latestMap[describes] = o;
         }
       });
       this.publicProfiles = Object.values(latestMap).map(o => ({
@@ -251,11 +295,12 @@ createApp({
 
     // Send a friend request
     async addFriend(targetId) {
-      if (!targetId) return;
-      await this.$graffiti.put(
-        { value: { activity: "friend", target: targetId }, channels: [this.session.actor, targetId] },
-        this.session
-      );
+      const payload = {
+        value: { activity: "friend", target: targetId },
+        channels: [ this.session.actor ]
+      };
+      const res = await this.$graffiti.put(payload, this.session);
+  
       await this.refreshFriends();
     },
 

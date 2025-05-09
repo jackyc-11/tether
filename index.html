@@ -16,6 +16,8 @@
     }
     </script>
     <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/emoji-mart@latest/dist/browser.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/emoji-mart@latest/css/emoji-mart.css" />
   </head>
   <body>
     <div id="app">
@@ -42,7 +44,7 @@
         <!-- MESSAGES TAB -->
         <section v-if="currentTab==='messages'" class="panel user-list">
           <list-section 
-            title="Users"
+            title="Chats"
             :items="users"
             :show-remove="false"
             @select="selectUser"
@@ -50,6 +52,46 @@
         </section>
         <section v-if="currentTab==='messages'" class="panel chat-window">
           <template v-if="selectedChannel">
+            <div class="feature-bar">
+              <button
+                :class="{ active: selectedFeature==='mood' }"
+                @click="selectedFeature = selectedFeature==='mood' ? null : 'mood'"
+              >
+                <strong>Mood Map 🤔</strong>
+              </button>
+              <button
+                :class="{ active: selectedFeature==='postit' }"
+                @click="selectedFeature='postit'"
+              >
+                <strong>Post-It Wall 📝</strong>
+              </button>
+              <button
+                :class="{ active: selectedFeature==='weather' }"
+                @click="selectedFeature='weather'"
+              >
+                <strong>Weathering With You ☁️</strong>
+              </button>
+            </div>
+
+            <div v-if="selectedFeature==='mood'" class="mood-map-panel">
+          
+              <div class="mood-display">
+                <div class="user-emoji">
+                  <strong>You:</strong>
+                  <div class="emoji-box static" @click="toggleEmojiPicker()">{{ myEmoji || "" }}</div>
+                  <button class="close-btn" @click="selectedFeature = null">✖</button>
+                </div>
+                <div class="user-emoji">
+                  <strong>{{ selectedUser?.name || "Them" }}:</strong>
+                  <div class="emoji-box static">{{ otherEmoji || "" }}</div>
+                </div>
+              </div>
+          
+              <div v-if="showEmojiPicker" class="emoji-picker-container" ref="emojiPickerContainer">
+                <!-- Emoji-mart will be mounted here -->
+              </div>
+            </div>
+
             <section class="messages">
               <graffiti-discover autopoll
                 v-slot="{ objects: msgs = [], isInitialPolling }"
@@ -109,17 +151,50 @@
           </template>
 
           <template v-else-if="friendTab==='add'">
-            <div class="add-friend-list">
-              <h2>Add Friends</h2>
-              <ul class="user-list">
-                <li v-for="user in discoverUsers" :key="user.id">
-                  <img class="list-avatar" :src="user.iconUrl || 'images/profile.png'" alt="" />
-                  <span class="list-label">{{ user.name }}</span>
-                  <button @click="addFriend(user.id)">Add</button>
+            <h2>Add Friends</h2>
+              <input
+                type="text"
+                class="search-bar"
+                placeholder="Search Tether"
+                v-model="searchTerm"
+              />
+            <section class="add-friends-container">
+              <ul class="users-list">
+                <li
+                  v-for="user in filteredUsers"
+                  :key="user.id"
+                  class="user-item"
+                >
+                  <div class="user-avatar">
+                    <img :src="user.iconUrl || 'images/profile.png'" alt="img" />
+                  </div>
+                  <div class="user-info">
+                    {{ user.name }}
+                  </div>
+                  <div class="user-actions">
+                    <button
+                      v-if="outgoingRequests.includes(user.id)"
+                      @click="cancelRequest(user.id)"
+                      class="cancel-request-btn"
+                    >
+                      Cancel Request
+                    </button>
+                  
+                    <button
+                      v-else
+                      @click="addFriend(user.id)"
+                      class="add-friend-btn"
+                    >
+                      Add Friend
+                    </button>
+                  </div>
                 </li>
               </ul>
-              <div v-if="discoverUsers.length === 0">No users to add.</div>
-            </div>
+          
+              <div v-if="filteredUsers.length === 0" class="no-results">
+                No users to add.
+              </div>
+            </section>
           </template>
 
           <template v-else-if="friendTab==='requests'">

@@ -100,7 +100,7 @@
               >
                 <div v-if="isInitialPolling" class="loading">Loading…</div>
                 <div
-                  v-for="m in (Array.isArray(objects) ? objects : []).sort((a,b)=>a.value.published - b.value.published)"
+                  v-for="m in (Array.isArray(msgs) ? msgs : []).sort((a,b)=>a.value.published - b.value.published)"
                   :key="m.url"
                   class="message"
                   :class="{ mine: m.actor === session?.actor, editing: editingObject?.url === m.url }"

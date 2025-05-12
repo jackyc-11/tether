@@ -11,7 +11,8 @@
         "@graffiti-garden/implementation-local": "https://cdn.jsdelivr.net/npm/@graffiti-garden/implementation-local@0.6.4/dist/browser/index.js",
         "@graffiti-garden/implementation-remote": "https://cdn.jsdelivr.net/npm/@graffiti-garden/implementation-remote@0.6.2/dist/browser/index.js",
         "@graffiti-garden/wrapper-vue": "https://cdn.jsdelivr.net/npm/@graffiti-garden/wrapper-vue@0.7.2/dist/browser/plugin.mjs",
-        "@graffiti-garden/wrapper-files": "https://cdn.jsdelivr.net/npm/@graffiti-garden/wrapper-files@0.0.1/dist/browser/index.js"
+        "@graffiti-garden/wrapper-files": "https://cdn.jsdelivr.net/npm/@graffiti-garden/wrapper-files@0.0.1/dist/browser/index.js",
+        "@graffiti-garden/wrapper-files/vue": "https://cdn.jsdelivr.net/npm/@graffiti-garden/wrapper-files@0.0.1/dist/vue/index.mjs"
       }
     }
     </script>
@@ -47,11 +48,12 @@
             title="Chats"
             :items="users"
             :show-remove="false"
+            :selected-id="selectedUser?.id"
             @select="selectUser"
           />
         </section>
         <section v-if="currentTab==='messages'" class="panel chat-window">
-          <template v-if="selectedChannel">
+          <div v-if="selectedChannel" class="chat-inner">
             <div class="feature-bar">
               <button
                 :class="{ active: selectedFeature==='mood' }"
@@ -60,26 +62,19 @@
                 <strong>Mood Map 🤔</strong>
               </button>
               <button
-                :class="{ active: selectedFeature==='postit' }"
-                @click="selectedFeature='postit'"
-              >
-                <strong>Post-It Wall 📝</strong>
-              </button>
-              <button
                 :class="{ active: selectedFeature==='weather' }"
-                @click="selectedFeature='weather'"
+                @click="selectedFeature = selectedFeature==='weather' ? null : 'weather'; if(selectedFeature==='weather') getWeatherData()"
               >
                 <strong>Weathering With You ☁️</strong>
               </button>
             </div>
 
             <div v-if="selectedFeature==='mood'" class="mood-map-panel">
-          
               <div class="mood-display">
                 <div class="user-emoji">
                   <strong>You:</strong>
                   <div class="emoji-box static" @click="toggleEmojiPicker()">{{ myEmoji || "" }}</div>
-                  <button class="close-btn" @click="selectedFeature = null">✖</button>
+                  <button class="close-btn" @click="removeMyEmoji">✖</button>
                 </div>
                 <div class="user-emoji">
                   <strong>{{ selectedUser?.name || "Them" }}:</strong>
@@ -88,7 +83,31 @@
               </div>
           
               <div v-if="showEmojiPicker" class="emoji-picker-container" ref="emojiPickerContainer">
-                <!-- Emoji-mart will be mounted here -->
+              </div>
+            </div>
+
+            <div v-if="selectedFeature==='weather'" class="weather-panel">
+              <div class="weather-display">
+                <div class="user-weather">
+                  <strong>You:</strong>
+                  <div class="weather-box">
+                    <div class="weather-details">
+                      <div class="location">{{ location.city }}</div>
+                      <div class="temp">{{ Math.round(weather.temp) }}°{{ weather.unit }}</div>
+                      <div class="condition">{{ weather.condition }}</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="user-weather">
+                  <strong>{{ selectedUser?.name || "Them" }}:</strong>
+                  <div class="weather-box">
+                    <div class="weather-details">
+                      <div class="location">{{ friendLocation?.city }}</div>
+                      <div class="temp">{{ Math.round(friendWeather.temp) }}°{{ friendWeather.unit }}</div>
+                      <div class="condition">{{ friendWeather.condition }}</div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -110,8 +129,8 @@
                     {{ m.value.content }}
                   </div>
                   <div class="msg-controls" v-if="m.actor === session?.actor">
-                    <button @click="startEdit(m)" class="edit-btn">Edit</button>
                     <button @click="deleteMessage(m)" class="delete-btn">Delete</button>
+                    <button @click="startEdit(m)" class="edit-btn">Edit</button>
                   </div>
                 </div>
               </graffiti-discover>
@@ -121,10 +140,10 @@
               <button type="submit">{{ editingMessage ? 'Update' : 'Send' }}</button>
               <button v-if="editingMessage" type="button" @click="cancelEdit" class="cancel-btn">Cancel</button>
             </form>
-          </template>
-          <template v-else>
-            <div class="no-chat">Select a user to chat.</div>
-          </template>
+          </div>
+          <div v-else class="no-chat">
+            Select a user to chat.
+          </div>
         </section>
 
         <!-- FRIENDS TAB -->
@@ -166,7 +185,12 @@
                   class="user-item"
                 >
                   <div class="user-avatar">
-                    <img :src="user.iconUrl || 'images/profile.png'" alt="img" />
+                    <img
+                      class="user-avatar-img"
+                      :src="user.iconUrl || 'images/profile.png'"
+                      @error="e => (e.target.src = 'images/profile.png')"
+                      alt="img"
+                    />
                   </div>
                   <div class="user-info">
                     {{ user.name }}
@@ -177,7 +201,7 @@
                       @click="cancelRequest(user.id)"
                       class="cancel-request-btn"
                     >
-                      Cancel Request
+                      Cancel
                     </button>
                   
                     <button
@@ -198,27 +222,32 @@
           </template>
 
           <template v-else-if="friendTab==='requests'">
-            <list-section 
-              title="Incoming Requests"
-              :items="friendRequests"
-              :show-remove="false"
-              @select="addFriend"
-            />
-            
-            <list-section 
-              title="Sent Requests"
-              :items="sentRequests"
-              :show-remove="true"
-              @remove="cancelRequest"
-            />
+            <section class="incoming-requests list-section">
+              <h2>Incoming Requests</h2>
+              <ul>
+                <li v-for="u in friendRequests" :key="u.id">
+                  <img
+                    class="list-avatar"
+                    :src="u.iconUrl || 'images/profile.png'"
+                    @error="e => e.target.src = 'images/profile.png'"
+                    alt="avatar"
+                  />
+                  <span class="list-label">{{ u.name }}</span>
+                  <div class="request-actions">
+                    <button @click="acceptRequest(u.id)" class="btn-accept">Accept</button>
+                    <button @click="rejectRequest(u.id)" class="btn-reject">Reject</button>
+                  </div>
+                </li>
+              </ul>
+            </section>
           </template>
 
         </section>
 
         <!-- SETTINGS / PROFILE TAB -->
         <section v-if="currentTab==='settings'" class="panel chat-window settings-panel">
-          <h2>{{ profileObject?.value?.name || session.actor }}'s Profile</h2>
-          <form class="profile-form" @submit.prevent="saveProfile">
+          <h2>{{ profileName || session.actor }}'s Profile</h2>
+          <div class="profile-form">
             <label>
               Picture
               <input type="file" accept="image/*" @change="onProfilePicChange" />
@@ -241,10 +270,7 @@
               Bio
               <textarea v-model="profileBio" placeholder="Short bio…"></textarea>
             </label>
-            <button type="submit" :class="{ 'saved-btn': saved }">
-              {{ saved ? 'Saved!' : 'Save Profile' }}
-            </button>
-          </form>
+          </div>
           <button v-if="$graffitiSession.value" class="logout-btn" @click=$graffiti.logout($graffitiSession.value)>Log Out</button>
         </section>
       </div>

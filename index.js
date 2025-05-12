@@ -1,61 +1,46 @@
 import { createApp } from "vue";
 import { GraffitiLocal } from "@graffiti-garden/implementation-local";
 import { GraffitiRemote } from "@graffiti-garden/implementation-remote";
-import { GraffitiPlugin } from "@graffiti-garden/wrapper-vue";
-import { fileToGraffitiObject } from "@graffiti-garden/wrapper-files";
-import { GraffitiGet } from "@graffiti-garden/wrapper-vue";
-import { graffitiObjectToFile } from "@graffiti-garden/wrapper-files";
+import { GraffitiPlugin, GraffitiGet } from "@graffiti-garden/wrapper-vue";
+import { fileToGraffitiObject, graffitiObjectToFile, graffitiFileSchema } from "@graffiti-garden/wrapper-files";
+import { GraffitiObjectToFile } from "@graffiti-garden/wrapper-files/vue";
 
 // Reusable ListSection component for displaying lists
 const ListSection = {
   props: {
     title: String,
     items: { type: Array, default: () => [] },
-    showRemove: { type: Boolean, default: false }
+    showRemove: { type: Boolean, default: false },
+    selectedId: { type: String, default: null }
   },
   emits: ["select", "remove"],
   template: `
-    <div class="list-section">
-      <h2>{{ title }}</h2>
-      <ul>
-        <li v-for="user in items" :key="user.id" class="user-item">
-          <graffiti-get
-            v-if="user.iconUrl"
-            :url="user.iconUrl"
-            v-slot="{ object }"
-          >
-            <graffiti-object-to-file
-              :object="object"
-              v-slot="{ fileDataUrl }"
-            >
-              <img class="list-avatar" :src="fileDataUrl" alt="icon" />
-            </graffiti-object-to-file>
-          </graffiti-get>
-
-          <!-- fallback if there was no iconUrl or the above fails -->
-          <img
-            v-else
-            class="list-avatar"
-            src="./images/profile.png"
-            alt="img"
-          />
-
-          <span class="list-label" @click="$emit('select', user)">
-            {{ user.name }}
-          </span>
-          <button
-            v-if="showRemove"
-            class="btn-remove"
-            @click="$emit('remove', user.id)"
-          >Remove</button>
-        </li>
-      </ul>
-    </div>
-  `
+  <div class="list-section">
+    <h2>{{ title }}</h2>
+    <ul>
+      <li v-for="user in items" :key="user.id" class="user-item" :class="{ selected: user.id === selectedId }" @click="$emit('select', user)">
+        <img
+          class="list-avatar"
+          :src="user.iconUrl || 'images/profile.png'"
+          @error="e => (e.target.src = 'images/profile.png')"
+          alt="avatar"
+        />
+        <span class="list-label">
+          {{ user.name }}
+        </span>
+        <button
+          v-if="showRemove"
+          class="btn-remove"
+          @click="$emit('remove', user.id)"
+        >Remove</button>
+      </li>
+    </ul>
+  </div>
+`
 };
 
 createApp({
-  components: { ListSection, GraffitiGet, graffitiObjectToFile },
+  components: { ListSection, GraffitiGet, GraffitiObjectToFile },
 
   data() {
     return {
@@ -79,6 +64,13 @@ createApp({
 
       selectedFeature: null,
       myEmoji: "",
+      otherEmoji: "",
+      showEmojiPicker: false,
+
+      weather: null,
+      friendWeather: null,
+      location: null,
+      friendLocation: null,
 
       // Profile state
       profileObject: null,
@@ -121,7 +113,18 @@ createApp({
             }
           }
         }
-      }
+      },
+      moodSchema: {
+        properties: {
+          value: {
+            required: ["emoji","timestamp"],
+            properties: {
+              emoji:     { type: "string" },
+              timestamp: { type: "number" }
+            }
+          }
+        }
+      },
     };
   },
 
@@ -130,16 +133,24 @@ createApp({
     acceptedFriends() {
       const me = this.session?.actor;
       if (!me) return [];
-      const mine = [], theirs = [];
-      this.friendObjects.forEach(f => {
-        if (!f?.value) return;
-        const v = f.value;
-        if (f.actor === me && typeof v.target === "string") mine.push(v.target);
-        if (v.target === me && typeof f.actor === "string") theirs.push(f.actor);
-      });
-      return mine
-        .filter(id => theirs.includes(id))
-        .map(id => ({ id, name: id, iconUrl: null }));
+      const mine   = new Set();
+      const theirs = new Set();
+      for (const f of this.friendObjects) {
+        if (!f?.value) continue;
+        const { target } = f.value;
+        if (f.actor === me && typeof target === "string") {
+          mine.add(target);
+        }
+        if (target === me && typeof f.actor === "string") {
+          theirs.add(f.actor);
+        }
+      }
+      const mutual = [...mine].filter(id => theirs.has(id));
+      return mutual.map(id => ({
+        id,
+        name: id,
+        iconUrl: null
+      }));
     },
 
     // Incoming friend requests
@@ -157,18 +168,18 @@ createApp({
     },
 
     // Sent friend requests
-    sentRequests() {
-      const mine = [], theirs = [];
-      this.friendObjects.forEach(f => {
-        if (!f?.value) return;
-        const v = f.value;
-        if (f.actor === this.session.actor && typeof v.target === 'string') mine.push(v.target);
-        if (v.target === this.session.actor && typeof f.actor === 'string') theirs.push(f.actor);
-      });
-      return mine
-        .filter(id => !theirs.includes(id))
-        .map(id => ({ id, name: id, iconUrl: null }));
-    },
+    // sentRequests() {
+    //   const mine = [], theirs = [];
+    //   this.friendObjects.forEach(f => {
+    //     if (!f?.value) return;
+    //     const v = f.value;
+    //     if (f.actor === this.session.actor && typeof v.target === 'string') mine.push(v.target);
+    //     if (v.target === this.session.actor && typeof f.actor === 'string') theirs.push(f.actor);
+    //   });
+    //   return mine
+    //     .filter(id => !theirs.includes(id))
+    //     .map(id => ({ id, name: id, iconUrl: null }));
+    // },
 
     // Discover users not yet in any friend state
     discoverUsers() {
@@ -176,8 +187,8 @@ createApp({
       const list = this.publicProfiles.filter(p => (
         p.id !== me &&
         !this.acceptedFriends.some(f => f.id === p.id) &&
-        !this.friendRequests.some(f => f.id === p.id) &&
-        !this.sentRequests.some(f => f.id === p.id)
+        !this.friendRequests.some(f => f.id === p.id)
+        // !this.sentRequests.some(f => f.id === p.id)
       ));
       return list;
     },
@@ -210,49 +221,76 @@ createApp({
 
         // Clear profile form
         this.profileObject = null;
-        this.profileName = this.profilePronouns = this.profileBio = "";
-        this.profilePicUrl = this.profilePicPreview = "";
+        this.profileName = "";
+        this.profilePronouns = "";
+        this.profileBio = "";
+        this.profilePicUrl = "";
+        this.profilePicPreview = "";
         this.profilePicFile = null;
 
         // Load existing profile
         const profiles = [];
-        for await (const obj of this.$graffiti.discover(["designftw-2025-studio2", session.actor], this.profileSchema)) {
+        for await (const entry of this.$graffiti.discover(["designftw-2025-studio2", session.actor], this.profileSchema)) {
+          const obj = entry.object;
           if (obj?.value?.describes === session.actor) profiles.push(obj);
         }
+        
         if (profiles.length) {
-          profiles.sort((a, b) => b.value.published - a.value.published);
+          profiles.sort((a, b) => (b.value.published || 0) - (a.value.published || 0));
           const latest = profiles[0];
-          this.profileObject     = latest;
-          this.profileName       = latest.value.name     || "";
-          this.profilePronouns   = latest.value.pronouns || "";
-          this.profileBio        = latest.value.bio      || "";
-          this.profilePicUrl     = latest.value.icon     || "";
+          
+          this.profileObject = latest;
+          this.profileName = latest.value.name || "";
+          this.profilePronouns = latest.value.pronouns || "";
+          this.profileBio = latest.value.bio || "";
+          this.profilePicUrl = latest.value.icon || "";
           this.profilePicPreview = this.profilePicUrl;
         }
 
-        // Refresh data
         await this.refreshFriends();
         await this.refreshPublicProfiles();
 
-        // Show only friends in chat user list
         this.users = this.acceptedFriends.map(f => ({
           id:      f.id,
           name:    f.name,
           iconUrl: f.iconUrl
         }));
+      },
+    },
+
+    profileName: {
+      handler(newVal) {
+        this.saveProfile();
+      }
+    },
+    profilePronouns: {
+      handler(newVal) {
+        this.saveProfile();
+      }
+    },
+    profileBio: {
+      handler(newVal) {
+        this.saveProfile();
       }
     },
 
     // When switching tabs
     currentTab(newTab) {
+      if (newTab !== 'messages') {
+        this.selectedChannel = null;
+        this.selectedUser    = null;
+        this.selectedFeature = null;
+      }
       if (newTab === 'settings') {
         const v = this.profileObject?.value;
-        this.profileName       = v?.name     || "";
-        this.profilePronouns   = v?.pronouns || "";
-        this.profileBio        = v?.bio      || "";
-        this.profilePicUrl     = v?.icon     || "";
-        this.profilePicPreview = this.profilePicUrl;
-        this.profilePicFile    = null;
+        if (v) {
+          this.profileName = v.name || "";
+          this.profilePronouns = v.pronouns || "";
+          this.profileBio = v.bio || "";
+          this.profilePicUrl = v.icon || "";
+          this.profilePicPreview = this.profilePicUrl;
+          this.profilePicFile = null;
+        }
       }
     },
 
@@ -263,6 +301,87 @@ createApp({
   },
 
   methods: {
+    async getWeatherData() {
+      const userCity = ['Boston', 'San Francisco', 'Chicago', 'Miami', 'Seattle'][Math.floor(Math.random() * 5)];
+      this.location = { city: userCity };
+      
+      const friendCity = ['Tokyo', 'London', 'Paris', 'Sydney', 'Berlin'][Math.floor(Math.random() * 5)];
+      this.friendLocation = { city: friendCity };
+      
+      const conditions = ['Clear', 'Cloudy', 'Rain', 'Thunderstorm', 'Snow', 'Mist'];
+      
+      this.weather = {
+        temp: Math.floor(Math.random() * 30) - 5,
+        condition: conditions[Math.floor(Math.random() * conditions.length)],
+        unit: 'C'
+      };
+      
+      this.friendWeather = {
+        temp: Math.floor(Math.random() * 30) - 5,
+        condition: conditions[Math.floor(Math.random() * conditions.length)],
+        unit: 'C'
+      };
+    },
+
+    toggleEmojiPicker() {
+      this.showEmojiPicker = !this.showEmojiPicker;
+      
+      if (this.showEmojiPicker) {
+        this.$nextTick(() => {
+          const picker = new window.EmojiMart.Picker({
+            onEmojiSelect: this.onEmojiSelect,
+            theme: 'light'
+          });
+          
+          const container = this.$refs.emojiPickerContainer;
+          if (container) {
+            container.innerHTML = '';
+            container.appendChild(picker);
+          }
+        });
+      }
+    },
+    
+    onEmojiSelect(emoji) {
+      this.myEmoji = emoji.native;
+      this.showEmojiPicker = false;
+      this.saveMyMoodEmoji(this.myEmoji);
+    },
+
+    removeMyEmoji() {
+      this.myEmoji = "";
+    },
+
+    async loadMoodEmojis(channel) {
+      this.myEmoji    = "";
+      this.otherEmoji = "";
+    
+      for await (const entry of this.$graffiti.discover(
+        [ channel ],
+        this.moodSchema
+      )) {
+        const obj = entry.object ?? entry;
+        if (!obj?.value) continue;
+    
+        const { emoji } = obj.value;
+        if (!emoji) continue;
+    
+        if (obj.actor === this.session.actor) {
+          this.myEmoji = emoji;
+        }
+        else if (obj.actor === this.selectedUser.id) {
+          this.otherEmoji = emoji;
+        }
+      }
+    },
+    
+    async saveMyMoodEmoji(emoji) {
+      await this.$graffiti.put({
+        value: { emoji, timestamp: Date.now() },
+        channels: [ this.selectedChannel ]
+      }, this.session);
+    },
+
     // Fetch all friend objects
     async refreshFriends() {
       const arr = [];
@@ -295,12 +414,14 @@ createApp({
 
     // Send a friend request
     async addFriend(targetId) {
+      const me = this.session.actor;
+    
       const payload = {
         value: { activity: "friend", target: targetId },
-        channels: [ this.session.actor ]
+        channels: [ me, targetId ]
       };
-      const res = await this.$graffiti.put(payload, this.session);
-  
+    
+      await this.$graffiti.put(payload, this.session);
       await this.refreshFriends();
     },
 
@@ -314,10 +435,25 @@ createApp({
       }
     },
 
+    async acceptRequest(theirId) {
+      await this._deleteSingle({ actor: theirId, target: this.session.actor });
+
+      await this.$graffiti.put({
+        value:    { activity: "friend", target: theirId },
+        channels: [ this.session.actor, theirId ]
+      }, this.session);
+    
+      await this.refreshFriends();
+    },
+  
+    async rejectRequest(theirId) {
+      await this._deleteSingle({ actor: theirId, target: this.session.actor });
+      await this.refreshFriends();
+    },
+
     // Remove mutual friendship
     async removeFriend(id) {
       await this._deleteSingle({ actor: this.session.actor, target: id });
-      await this._deleteSingle({ actor: id, target: this.session.actor });
       await this.refreshFriends();
     },
 
@@ -334,12 +470,14 @@ createApp({
     },
 
     // Select a user to chat
-    selectUser(user) {
+    async selectUser(user) {
       this.selectedUser = user;
       this.selectedChannel = [this.session.actor, user.id].sort().join("--");
       this.editingMessage = false;
       this.editingObject = null;
       this.myMessage = "";
+      this.selectedFeature = null;
+      await this.loadMoodEmojis(this.selectedChannel);
     },
 
     // Send a chat message
@@ -423,7 +561,7 @@ createApp({
           icon:      this.profilePicUrl,
           published: Date.now()
         },
-        channels: ["designftw-2025-studio2"]
+        channels: ["designftw-2025-studio2", this.session.actor]
       };
 
       // Put and store URL if new

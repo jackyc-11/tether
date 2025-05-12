@@ -157,8 +157,8 @@ body {
 
 .message {
   display: flex;
-  flex-direction: column;
-  position: relative;
+  flex-direction: row-reverse;
+  align-items: center;
   margin-bottom: 0.75rem;
 }
 
@@ -172,18 +172,16 @@ body {
 
 .message.mine .message-content {
   background: var(--select-bg);
-  margin-left: auto;
 }
 
-.message.editing .message-content {
-  border: 2px solid var(--accent);
+.msg.mine {
+  justify-content: flex-end;
 }
 
 .msg-controls {
   display: none;
   gap: 0.5rem;
-  margin-top: 0.25rem;
-  margin-bottom: 0.5rem;
+  margin-right: 0.5rem;
   justify-content: flex-end;
 }
 
@@ -205,12 +203,14 @@ body {
   background: var(--danger);
 }
 
-.edited-indicator {
-  font-size: 0.75rem;
-  margin-left: 0.5rem;
+/* COMPOSER */
+.chat-inner {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-/* COMPOSER */
 .composer {
   display: flex; 
   gap: 0.5rem;
@@ -284,10 +284,6 @@ body {
 }
 
 /* LIST SECTION COMPONENT */
-.list-section {
-  padding: 1rem;
-}
-
 .list-section h2 {
   margin-bottom: 1rem;
 }
@@ -336,11 +332,6 @@ body {
 }
 
 /* ADD FRIEND SECTION */
-.add-friend-section {
-  padding: 1rem;
-  border-top: 1px solid rgba(0, 0, 0, 0.1);
-}
-
 .add-friends-container {
   padding: 1rem;
   overflow-y: auto;
@@ -533,7 +524,6 @@ body {
   padding: 0.5rem;
   border-bottom: solid var(--accent);
   border-radius: 0 ;
-  margin-bottom: 1rem;
 }
 
 .close-btn {
@@ -558,12 +548,12 @@ body {
 
 .emoji-box.static {
   border-style: solid;
-  cursor: default;
+  cursor: pointer;
 }
 
 .mood-display {
   display: flex;
-  justify-content: space-between;
+  justify-content: space-around;
   margin-bottom: 0.5rem;
 }
 
@@ -571,6 +561,13 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.emoji-picker-container {
+  position: fixed;
+  top: 15%;
+  left: 35%;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.30);
 }
 
 .cancel-request-btn {
@@ -611,4 +608,76 @@ button:hover {
 
 .panel {
   animation: panel-fade 0.6s ease-out;
+}
+
+.weather-panel {
+  background: var(--pink);
+  padding: 0.5rem;
+  border-bottom: solid var(--accent);
+  margin-bottom: 1rem;
+}
+
+.weather-display {
+  display: flex;
+  justify-content: space-around;
+}
+
+.user-weather {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.weather-box {
+  min-width: 9rem;
+  border: 2px solid black;
+  border-radius: 0.5rem;
+  padding: 0.5rem;
+  background-color: white;
+}
+
+.weather-details {
+  text-align: center;
+}
+
+.location {
+  font-weight: bold;
+  font-size: 0.9rem;
+}
+
+.temp {
+  font-weight: bold;
+  font-size: 1.2rem;
+  margin: 0.2rem 0;
+}
+
+.condition {
+  font-size: 0.9rem;
+}
+
+.request-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-accept {
+  background: var(--green);
+  color: white;
+  border: none;
+  padding: 0.25rem 0.75rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+}
+
+.btn-reject {
+  background: var(--danger);
+  color: white;
+  border: none;
+  padding: 0.25rem 0.75rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+}
+
+.list-section .user-item.selected {
+  background-color: var(--select-bg);
 }

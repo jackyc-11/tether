@@ -26,12 +26,12 @@ const ListSection = {
           alt="avatar"
         />
         <span class="list-label">
-          {{ user.name }}
+          {{ user.localId || user.name }}
         </span>
         <button
           v-if="showRemove"
           class="btn-remove"
-          @click="$emit('remove', user.id)"
+          @click.stop="$emit('remove', user.id)"
         >Remove</button>
       </li>
     </ul>
@@ -95,7 +95,7 @@ createApp({
         properties: {
           value: {
             required: ["activity", "target"],
-            properties: { activity: { const: "friend" }, target: { type: "string" } }
+            properties: { activity: { enum: ["friend","friend_cancel"] }, target: { type: "string" } }
           }
         }
       },
@@ -136,50 +136,56 @@ createApp({
       const mine   = new Set();
       const theirs = new Set();
       for (const f of this.friendObjects) {
-        if (!f?.value) continue;
-        const { target } = f.value;
-        if (f.actor === me && typeof target === "string") {
-          mine.add(target);
-        }
-        if (target === me && typeof f.actor === "string") {
-          theirs.add(f.actor);
-        }
+        if (f.value.activity !== "friend") continue;
+  
+        const actor  = f.actor;
+        const target = f.value.target;
+        if (actor === me) mine.add(target);
+        if (target === me) theirs.add(actor);
       }
-      const mutual = [...mine].filter(id => theirs.has(id));
-      return mutual.map(id => ({
-        id,
-        name: id,
-        iconUrl: null
-      }));
+      return [...mine]
+      .filter(id => theirs.has(id))
+      .map(id => {
+        const prof = this.publicProfiles.find(p => p.id === id) || {};
+        return {
+          id,
+          name:    prof.name    || id,
+          iconUrl: prof.iconUrl || null,
+          localId: prof.localId
+        };
+      });
     },
 
     // Incoming friend requests
     friendRequests() {
-      const mine = [], theirs = [];
-      this.friendObjects.forEach(f => {
-        if (!f?.value) return;
-        const v = f.value;
-        if (f.actor === this.session.actor && typeof v.target === 'string') mine.push(v.target);
-        if (v.target === this.session.actor && typeof f.actor === 'string') theirs.push(f.actor);
-      });
-      return theirs
-        .filter(id => !mine.includes(id))
-        .map(id => ({ id, name: id, iconUrl: null }));
+      const requests = [];
+      const cancels = new Set();
+  
+      for (const f of this.friendObjects) {
+        const { activity, target } = f.value;
+        // if *you* cancelled, remember it
+        if (activity === "friend_cancel" && f.actor === this.session.actor) {
+          cancels.add(target);
+        }
+        // if they sent you a friend request
+        if (activity === "friend" && f.actor !== this.session.actor) {
+          requests.push(f.actor);
+        }
+      }
+  
+      return requests
+        .filter(id => !cancels.has(id))
+        .filter(id => !this.acceptedFriends.some(f => f.id === id))
+        .map(id => {
+          const prof = this.publicProfiles.find(p => p.id === id) || {};
+          return {
+            id,
+            name:    prof.name    || id,
+            iconUrl: prof.iconUrl || "images/profile.png",
+            localId: prof.localId
+          };
+        });
     },
-
-    // Sent friend requests
-    // sentRequests() {
-    //   const mine = [], theirs = [];
-    //   this.friendObjects.forEach(f => {
-    //     if (!f?.value) return;
-    //     const v = f.value;
-    //     if (f.actor === this.session.actor && typeof v.target === 'string') mine.push(v.target);
-    //     if (v.target === this.session.actor && typeof f.actor === 'string') theirs.push(f.actor);
-    //   });
-    //   return mine
-    //     .filter(id => !theirs.includes(id))
-    //     .map(id => ({ id, name: id, iconUrl: null }));
-    // },
 
     // Discover users not yet in any friend state
     discoverUsers() {
@@ -188,23 +194,26 @@ createApp({
         p.id !== me &&
         !this.acceptedFriends.some(f => f.id === p.id) &&
         !this.friendRequests.some(f => f.id === p.id)
-        // !this.sentRequests.some(f => f.id === p.id)
       ));
       return list;
     },
 
     outgoingRequests() {
       return this.friendObjects
-        .filter(f => f.actor === this.session.actor)
-        .map(f => f.value.target);
+        .filter(f => f.actor === this.session.actor
+                     && f.value.activity === "friend")
+        .map(f => f.value.target)
     },
     
     filteredUsers() {
-      const me = this.session.actor;
-      const term = this.searchTerm.toLowerCase().trim();
-      return this.publicProfiles.filter(p => p.id !== me)
+      const me   = this.session.actor
+      const term = this.searchTerm.toLowerCase().trim()
+  
+      return this.publicProfiles
+        .filter(p => p.id !== me)
         .filter(p => !this.acceptedFriends.some(f => f.id === p.id))
-        .filter(p => !term || p.name.toLowerCase().includes(term));
+        .filter(p => !term || p.localId.toLowerCase().includes(term))
+        .sort((a, b) => a.localId.localeCompare(b.localId))
     },
   },
 
@@ -251,9 +260,10 @@ createApp({
         await this.refreshPublicProfiles();
 
         this.users = this.acceptedFriends.map(f => ({
-          id:      f.id,
-          name:    f.name,
-          iconUrl: f.iconUrl
+          id: f.id,
+          name: f.name,
+          iconUrl: f.iconUrl,
+          localId: f.localId
         }));
       },
     },
@@ -405,11 +415,16 @@ createApp({
           latestMap[describes] = o;
         }
       });
-      this.publicProfiles = Object.values(latestMap).map(o => ({
-        id:      o.value.describes,
-        name:    o.value.name     || o.value.describes,
-        iconUrl: o.value.icon     || null
-      }));
+      this.publicProfiles = Object.values(latestMap).map(o => {
+        const webId = o.value.describes;
+        const local = webId.split('/').filter(Boolean).pop();
+        return {
+          id: webId,
+          name: o.value.name || local,
+          iconUrl: o.value.icon || null,
+          localId: local
+        };
+      });
     },
 
     // Send a friend request
@@ -425,7 +440,6 @@ createApp({
       await this.refreshFriends();
     },
 
-    // Internal delete helper
     async _deleteSingle({ actor, target }) {
       for (const f of this.friendObjects) {
         if (f.actor === actor && f.value.target === target) {
@@ -436,24 +450,30 @@ createApp({
     },
 
     async acceptRequest(theirId) {
-      await this._deleteSingle({ actor: theirId, target: this.session.actor });
-
+      const me = this.session.actor;
       await this.$graffiti.put({
         value:    { activity: "friend", target: theirId },
-        channels: [ this.session.actor, theirId ]
+        channels: [ me, theirId ]
       }, this.session);
-    
       await this.refreshFriends();
     },
   
     async rejectRequest(theirId) {
-      await this._deleteSingle({ actor: theirId, target: this.session.actor });
+      const me = this.session.actor;
+      await this.$graffiti.put({
+        value:    { activity: "friend_cancel", target: theirId },
+        channels: [ me, theirId ]
+      }, this.session);
       await this.refreshFriends();
     },
-
+    
     // Remove mutual friendship
     async removeFriend(id) {
       await this._deleteSingle({ actor: this.session.actor, target: id });
+      await this.$graffiti.put({
+        value:    { activity: "friend_cancel", target: id },
+        channels: [this.session.actor, id]
+      }, this.session);
       await this.refreshFriends();
     },
 
@@ -537,6 +557,11 @@ createApp({
       this.profilePicFile = null;
       this.profilePicUrl = "";
       this.profilePicPreview = "";
+
+      if (this.profileObject?.value) {
+        this.profileObject.value.icon = "";
+        this.saveProfile();
+      }
     },
 
     // Save or update profile
@@ -566,9 +591,9 @@ createApp({
 
       // Put and store URL if new
       const res = await this.$graffiti.put(payload, this.session);
-      if (!this.profileObject && res.url) {
-        this.profileObject = { ...payload, url: res.url };
-      }
+      this.profileObject = { ...payload, url: res.url || this.profileObject?.url };
+
+      await this.refreshPublicProfiles()
 
       this.saved = true;
       setTimeout(() => {

@@ -681,3 +681,23 @@ button:hover {
 .list-section .user-item.selected {
   background-color: var(--select-bg);
 }
+
+@media (max-width: 768px) {
+  .app-container { flex-direction: column; }
+  .nav-panel {  
+    width: 100%;  
+    flex-direction: row;  
+    justify-content: space-around;  
+  }
+  .nav-item img { width: 1.5rem; height: 1.5rem; }
+  .panel.user-list,
+  .panel.chat-window { width: 100%; margin: 0.5rem 0; }
+  .composer { flex-direction: column; }
+  .composer input { width: 100%; margin-bottom: 0.5rem; }
+  .friend-nav li { padding: 0.5rem; font-size: 0.9rem; }
+  .friend-nav-icon { width: 1.2rem; height: 1.2rem; }
+  .add-friends-container {
+    max-height: calc(100vh - 180px);
+    overflow-y: auto;
+  }
+}

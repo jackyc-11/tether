@@ -243,6 +243,21 @@ createApp({
           const obj = entry.object;
           if (obj?.value?.describes === session.actor) profiles.push(obj);
         }
+
+        if (profiles.length === 0) {
+          await this.$graffiti.put({
+            value: {
+              generator: "https://jackyc-11.github.io/tether/",
+              describes: session.actor,
+              name:      session.actor.split("/").filter(Boolean).pop(),
+              pronouns:  "",
+              bio:       "",
+              icon:      "",
+              published: Date.now()
+            },
+            channels: ["designftw-2025-studio2", session.actor]
+          }, session);
+        }
         
         if (profiles.length) {
           profiles.sort((a, b) => (b.value.published || 0) - (a.value.published || 0));

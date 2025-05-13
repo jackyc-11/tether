@@ -565,6 +565,7 @@ createApp({
       if (!file) return;
       this.profilePicFile = file;
       this.profilePicPreview = URL.createObjectURL(file);
+      this.saveProfile();
     },
 
     // Remove current picture
@@ -608,7 +609,7 @@ createApp({
       const res = await this.$graffiti.put(payload, this.session);
       this.profileObject = { ...payload, url: res.url || this.profileObject?.url };
 
-      await this.refreshPublicProfiles()
+      await this.refreshPublicProfiles();
 
       this.saved = true;
       setTimeout(() => {

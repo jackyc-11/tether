@@ -2,7 +2,7 @@ import { createApp } from "vue";
 import { GraffitiLocal } from "@graffiti-garden/implementation-local";
 import { GraffitiRemote } from "@graffiti-garden/implementation-remote";
 import { GraffitiPlugin, GraffitiGet } from "@graffiti-garden/wrapper-vue";
-import { fileToGraffitiObject, graffitiObjectToFile, graffitiFileSchema } from "@graffiti-garden/wrapper-files";
+import { fileToGraffitiObject, graffitiObjectToFile } from "@graffiti-garden/wrapper-files";
 import { GraffitiObjectToFile } from "@graffiti-garden/wrapper-files/vue";
 
 // Reusable ListSection component for displaying lists
@@ -74,13 +74,13 @@ createApp({
 
       // Profile state
       profileObject: null,
+      profilePicFile: null,
+      profilePicPreview: "",
       profileName: "",
       profilePronouns: "",
       profileBio: "",
-      profilePicFile: null,
-      profilePicPreview: "",
-      profilePicUrl: "",
       saved: false,
+      loadingProfile: false,
 
       // Schemas
       messageSchema: {
@@ -226,51 +226,55 @@ createApp({
           this.session = null;
           return;
         }
+        this.loadingProfile = true;
         this.session = session;
 
-        // Clear profile form
-        this.profileObject = null;
-        this.profileName = "";
-        this.profilePronouns = "";
-        this.profileBio = "";
-        this.profilePicUrl = "";
-        this.profilePicPreview = "";
+        this.profileObject  = null;
+        this.profileName    = "";
+        this.profilePronouns= "";
+        this.profileBio     = "";
         this.profilePicFile = null;
 
-        // Load existing profile
         const profiles = [];
-        for await (const entry of this.$graffiti.discover(["designftw-2025-studio2", session.actor], this.profileSchema)) {
-          const obj = entry.object;
-          if (obj?.value?.describes === session.actor) profiles.push(obj);
+        for await (const entry of this.$graffiti.discover(
+          ["designftw-2025-studio2", session.actor],
+          this.profileSchema
+        )) {
+          if (entry.object?.value.describes === session.actor) {
+            profiles.push(entry.object);
+          }
         }
 
         if (profiles.length === 0) {
           await this.$graffiti.put({
             value: {
-              generator: "https://jackyc-11.github.io/tether/",
               describes: session.actor,
-              name:      session.actor.split("/").filter(Boolean).pop(),
+              name:      session.actor.split("/").pop(),
               pronouns:  "",
               bio:       "",
               icon:      "",
-              published: Date.now()
+              published: Date.now(),
             },
             channels: ["designftw-2025-studio2", session.actor]
           }, session);
         }
         
         if (profiles.length) {
-          profiles.sort((a, b) => (b.value.published || 0) - (a.value.published || 0));
           const latest = profiles[0];
-          
           this.profileObject = latest;
-          this.profileName = latest.value.name || "";
-          this.profilePronouns = latest.value.pronouns || "";
-          this.profileBio = latest.value.bio || "";
-          this.profilePicUrl = latest.value.icon || "";
-          this.profilePicPreview = this.profilePicUrl;
-        }
+          this.profileName   = latest.value.name;
+          this.profilePronouns = latest.value.pronouns;
+          this.profileBio    = latest.value.bio;
 
+          if (latest.value.icon) {
+            const file = await graffitiObjectToFile({ url: latest.value.icon });
+            this.profilePicPreview = URL.createObjectURL(file);
+          } else {
+            this.profilePicPreview = "";
+          }
+        }
+        
+        this.loadingProfile = false;
         await this.refreshFriends();
         await this.refreshPublicProfiles();
 
@@ -283,21 +287,9 @@ createApp({
       },
     },
 
-    profileName: {
-      handler(newVal) {
-        this.saveProfile();
-      }
-    },
-    profilePronouns: {
-      handler(newVal) {
-        this.saveProfile();
-      }
-    },
-    profileBio: {
-      handler(newVal) {
-        this.saveProfile();
-      }
-    },
+    profileName()    { this.debounceSave(); },
+    profilePronouns(){ this.debounceSave(); },
+    profileBio()     { this.debounceSave(); },
 
     // When switching tabs
     currentTab(newTab) {
@@ -312,8 +304,6 @@ createApp({
           this.profileName = v.name || "";
           this.profilePronouns = v.pronouns || "";
           this.profileBio = v.bio || "";
-          this.profilePicUrl = v.icon || "";
-          this.profilePicPreview = this.profilePicUrl;
           this.profilePicFile = null;
         }
       }
@@ -326,6 +316,13 @@ createApp({
   },
 
   methods: {
+    debounceSave() {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = setTimeout(() => {
+        this.saveProfile();
+      }, 1000);
+    },
+
     async getWeatherData() {
       const userCity = ['Boston', 'San Francisco', 'Chicago', 'Miami', 'Seattle'][Math.floor(Math.random() * 5)];
       this.location = { city: userCity };
@@ -419,9 +416,10 @@ createApp({
     // Fetch all public profiles
     async refreshPublicProfiles() {
       const all = [];
-      for await (const entry of this.$graffiti.discover(["designftw-2025-studio2"], this.profileSchema)) {
-        const obj = entry.object;
-        if (obj.value?.describes) all.push(obj);
+      for await (const entry of this.$graffiti.discover(  ["designftw-2025-studio2"], this.profileSchema )) {
+        if (entry.object?.value?.describes) {
+          all.push(entry.object);
+        }
       }
       const latestMap = {};
       all.forEach(o => {
@@ -430,6 +428,7 @@ createApp({
           latestMap[describes] = o;
         }
       });
+
       this.publicProfiles = Object.values(latestMap).map(o => {
         const webId = o.value.describes;
         const local = webId.split('/').filter(Boolean).pop();
@@ -571,8 +570,6 @@ createApp({
     // Remove current picture
     removeProfilePic() {
       this.profilePicFile = null;
-      this.profilePicUrl = "";
-      this.profilePicPreview = "";
 
       if (this.profileObject?.value) {
         this.profileObject.value.icon = "";
@@ -584,10 +581,10 @@ createApp({
     async saveProfile() {
       // Upload new pic if chosen
       if (this.profilePicFile) {
-        const obj = await fileToGraffitiObject(this.profilePicFile);
-        const { url } = await this.$graffiti.put(obj, this.session);
-        this.profilePicUrl = url;
-        this.profilePicFile = null;
+        const fileObj = await fileToGraffitiObject(this.profilePicFile)
+        const { url } = await this.$graffiti.put(fileObj, this.session)
+        this.profileObject = { ...fileObj, url }
+        this.profilePicFile = null
       }
 
       // Build profile object
@@ -599,7 +596,7 @@ createApp({
           name:      this.profileName,
           pronouns:  this.profilePronouns,
           bio:       this.profileBio,
-          icon:      this.profilePicUrl,
+          icon:      this.profileObject?.url || "",
           published: Date.now()
         },
         channels: ["designftw-2025-studio2", this.session.actor]
@@ -607,7 +604,7 @@ createApp({
 
       // Put and store URL if new
       const res = await this.$graffiti.put(payload, this.session);
-      this.profileObject = { ...payload, url: res.url || this.profileObject?.url };
+      this.profileObject = { ...payload, url: res.url };
 
       await this.refreshPublicProfiles();
 

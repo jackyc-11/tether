@@ -701,3 +701,26 @@ button:hover {
     overflow-y: auto;
   }
 }
+
+.save-feedback {
+  margin: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--green);
+  color: white;
+  border-radius: 0.5rem;
+  font-size: 0.9rem;
+  text-align: center;
+  animation: fadeOut 2s ease-in-out forwards;
+}
+
+@keyframes fadeOut {
+  0%   { opacity: 1; }
+  80%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.loading {
+  text-align: center;
+  font-size: 1.5rem;
+  color: #555;
+}

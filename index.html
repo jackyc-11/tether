@@ -216,7 +216,7 @@
               </ul>
           
               <div v-if="filteredUsers.length === 0" class="no-results">
-                No users to add.
+                Loading users...
               </div>
             </section>
           </template>
@@ -246,32 +246,40 @@
 
         <!-- SETTINGS / PROFILE TAB -->
         <section v-if="currentTab==='settings'" class="panel chat-window settings-panel">
-          <h2>{{ profileName || session.actor.split('/').filter(Boolean).pop() }}'s Profile</h2>
-          <div class="profile-form">
-            <label>
-              Picture
-              <input type="file" accept="image/*" @change="onProfilePicChange" />
-            </label>
-            <div v-if="profilePicPreview" class="profile-preview">
-              <img :src="profilePicPreview" alt="Preview" />
-              <button type="button" class="btn-remove-pic" @click="removeProfilePic()">
-                Remove
-              </button>
-            </div>
-            <label>
-              Name
-              <input v-model="profileName" placeholder="Name" />
-            </label>
-            <label>
-              Pronouns
-              <input v-model="profilePronouns" placeholder="Pronouns" />
-            </label>
-            <label>
-              Bio
-              <textarea v-model="profileBio" placeholder="Short bio…"></textarea>
-            </label>
+          <div v-if="loadingProfile" class="loading">
+            Loading profile…
           </div>
-          <button v-if="$graffitiSession.value" class="logout-btn" @click=$graffiti.logout($graffitiSession.value)>Log Out</button>
+          <template v-else>
+            <h2>{{ profileName || session.actor.split('/').pop() }}'s Profile</h2>
+            <div class="profile-form">
+              <label>
+                Picture
+                <input type="file" accept="image/*" @change="onProfilePicChange" />
+              </label>
+              <div v-if="profilePicPreview" class="profile-preview">
+                <img :src="profilePicPreview" alt="Preview" />
+                <button type="button" class="btn-remove-pic" @click="removeProfilePic()">
+                  Remove
+                </button>
+              </div>
+              <label>
+                Name
+                <input v-model="profileName" placeholder="Name" />
+              </label>
+              <label>
+                Pronouns
+                <input v-model="profilePronouns" placeholder="Pronouns" />
+              </label>
+              <label>
+                Bio
+                <textarea v-model="profileBio" placeholder="Short bio…"></textarea>
+              </label>
+              <div v-if="saved" class="save-feedback">
+                ✔️ Profile saved!
+              </div>
+            </div>
+            <button v-if="$graffitiSession.value" class="logout-btn" @click=$graffiti.logout($graffitiSession.value)>Log Out</button>
+          </template>
         </section>
       </div>
     </div>
